@@ -1,4 +1,4 @@
-# Gets all chapters from the book Algoritmer og datastrukturer, merges them into one pdf
+# Gets all chapters from the book Algoritmer og datastrukturer, merges them into one pdf (algs.pdf)
 
 # Needs these:
 # pip install beautifulsoup4
