@@ -79,7 +79,7 @@ def get_full_book_pdf():
 					pass
 	try:
 		output.write(file("algs-full.pdf", "wb"))
-		print "Assembled pdf at algs-full.pdf"
+		print "Assembled pdf at algs-full.pdf\n"
 
 	except Exception, e:
 			print "Error ocurred!"
@@ -88,5 +88,5 @@ def get_full_book_pdf():
 
 
 get_book()
-#get_chapters()
-get_full_book_pdf()
+get_chapters()
+#get_full_book_pdf()
