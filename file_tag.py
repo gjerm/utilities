@@ -57,7 +57,7 @@ def list_to_string(l):
 	return ', '.join(l)
 
 def string_to_list(s):
-	return re.findall(re.compile('[^,\s][\w\s]+\\b'), s)
+	return re.findall(re.compile('[^\s,\s][^\\b,]+'), s)
 
 def db_connect():
     global db_con
@@ -115,6 +115,8 @@ rick.add_to_db()
 skool.add_to_db()
 
 files = db_load_files()
+# for f in files: print f.tags
+
 print "Files with tags that match the search '" + search + "':"
 for f in files:
 	m = f.search(search)
