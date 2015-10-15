@@ -2,8 +2,11 @@
 
 import re
 import sqlite3 as sql
+import os
 
-db_name = "taggedfiles.db"
+path = os.environ['APPDATA'] + "\\Tagfile"
+if not os.path.exists(path): os.makedirs(path)
+db_name = path + "\\taggedfiles.db"
 db_con = False
 
 class tagged_file():
@@ -14,8 +17,13 @@ class tagged_file():
 	def tags_as_string(self):
 		return list_to_string(self.tags)
 
-	def add_tag(self, tag):
-		self.tags.append(tag)
+	def add_tags(self, tags):
+		tags = string_to_list(tags)
+		if tags:
+			for t in tags:
+				self.tags.append(t)
+		else:
+			print "No tags to add!"
 
 	def remove_tag(self, tag):
 		try:
@@ -23,7 +31,7 @@ class tagged_file():
 		except:
 			print "Tag " + tag + " not found, won't remove."
 
-	def remove_tags(self):
+	def remove_all_tags(self):
 		self.tags = []
 
 	def has_tag(self, tag):
@@ -57,7 +65,7 @@ def list_to_string(l):
 	return ', '.join(l)
 
 def string_to_list(s):
-	return re.findall(re.compile('[^\s,\s][^\\b,]+'), s)
+	return re.findall(re.compile('[^\s,]+\s*[^\s,]+'), s)
 
 def db_connect():
     global db_con
@@ -106,27 +114,32 @@ def db_clear():
     return True
 
 rick = tagged_file("C:\Users\dfood\Music\Interstellar (Original Motion Picture Soundtrack)\\05 Stay.flac", ["entertainment", "music"])
-skool = tagged_file("C:\Users\dfood\Downloads\icmp-ethereal-trace-2.pcap", ["school", "tech", "wireshark"])
+skool = tagged_file("C:\Users\dfood\Downloads\icmp-ethereal-trace-2.pcap", ["school", "tech  \n ", "wireshark"])
 
+print db_name
 db_connect()
 db_clear()
-search = "enter"
+search = "e"
+
+rick.add_tags("test1, test2")
+
 rick.add_to_db()
 skool.add_to_db()
 
+
 files = db_load_files()
-# for f in files: print f.tags
+for f in files: print list_to_string(f.tags)
 
 print "Files with tags that match the search '" + search + "':"
 for f in files:
 	m = f.search(search)
 	if m:
-		print "Found tag '" + m[0] + "' for " + f.file_path + "\n"
+		print "Found tags '" + list_to_string(m) + "' for " + f.file_path
 
 search = "scho"
-print "Files with tags that match the search '" + search + "':"
+print "\nFiles with tags that match the search '" + search + "':"
 for f in files:
 	m = f.search(search)
 	if m:
-		print "Found tag '" + m[0] + "' for " + f.file_path + "\n"
+		print "Found tags '" + list_to_string(m) + "' for " + f.file_path
 db_disconnect()
