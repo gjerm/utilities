@@ -10,6 +10,8 @@ auto_params = ["__EVENTTARGET", "__EVENTARGUMENT", "__LASTFOCUS", "__VIEWSTATE",
 			  "tWildcard", 'bGetTimetable']
 
 def get_timetable(days, weeks, subject_code, season):
+	url = "http://timeplan.uia.no/swsuia" + season + "/public/no/default.aspx"
+
 	params = {
 		'RadioType': RADIO_TYPE,
 		'lbDays': days,
@@ -18,7 +20,6 @@ def get_timetable(days, weeks, subject_code, season):
 	}
 
 	with requests.Session() as s:
-		url = "http://timeplan.uia.no/swsuia" + season + "/public/no/default.aspx"
 		r = s.get(url)
 		soup = BeautifulSoup(r.text, 'lxml')
 
@@ -33,7 +34,9 @@ def get_timetable(days, weeks, subject_code, season):
 			else:
 				params[p] = ""
 
-		sleep(2)
+		sleep(1)
+
+		if len(params['bGetTimetable']) == 0: params['bGetTimetable'] = 'Vis timeplan'
 
 		r = s.post(url, data=params)
 
