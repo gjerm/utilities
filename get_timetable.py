@@ -11,8 +11,9 @@ import sqlite3 as sql
 
 RADIO_TYPE = "XMLSpreadsheet;studentsetxmlurl;SWSCUST+StudentSet+XMLSpreadsheet"
 
-ROOMS_RE = re.compile('([A-D]\d \d{3})')
+ROOMS_RE = re.compile('(.\d \d{3})')
 NON_DIGITS_RE = re.compile('[\D]+')
+SUB_CODE_RE = re.compile('([A-Z]+.\d{3})')
 
 SQL_TABLE = "(Week INT, Weekday VARCHAR(3), Date VARCHAR(10), StartTime VARCHAR(5), EndTime VARCHAR(5), Course VARCHAR(16), Type VARCHAR(10), Info VARCHAR(64), Rooms VARCHAR(64));"
 
@@ -34,37 +35,79 @@ def get_timetable(days, weeks, subject_code, season, csv=False):
 		'lbWeeks': ";".join(str(_) for _ in weeks),
 		'dlObject': subject_code
 	}
+	s = requests.Session()
+	
+	r = False
+	soup = False
+	params['__EVENTVALIDATION'] = False
+	
+	new_params = populate_parameters(s, season)
 
-	with requests.Session() as s:
-		r = False
-		soup = False
-		params['__EVENTVALIDATION'] = False
+	for k, v in new_params.iteritems():
+		params[k] = v
 
-		# Try until we get the needed parameters
-		while not params['__EVENTVALIDATION']:
-			sleep(0.5)
-			r = s.get("http://timeplan.uia.no/swsuia" + season + "/public/no/login.aspx")
-			soup = BeautifulSoup(r.text, 'lxml')
-			params['__EVENTVALIDATION'] = soup.find(id='__EVENTVALIDATION')
+	# Get the actual time table, with params as the payload
+	r = s.post(url, data=params)
+	s.close()
+	
+	return convert_to_table_format(r.text.encode('utf-8'), csv)
 
-		# Get parameters from the page
-		for p in auto_params:
-			thing = soup.find(id=p)
-			if thing != None:
-				val = thing.get('value')
-				if val:
-					params[p] = val
-				else:
-					params[p] = ""
-			else:
-				params[p] = p
+def populate_parameters(session, season):
+	params = {}
 
-		# Get the actual time table, with params as the payload
-		r = s.post(url, data=params)
+	r = False
+	soup = False
+	params['__EVENTVALIDATION'] = False
 
+	# Try until we get the needed parameters
+	while not params['__EVENTVALIDATION']:
+		sleep(0.5)
+		r = session.get("http://timeplan.uia.no/swsuia" + season + "/public/no/login.aspx")
 		soup = BeautifulSoup(r.text, 'lxml')
+		params['__EVENTVALIDATION'] = soup.find(id='__EVENTVALIDATION')
 
-		return convert_to_table_format(r.text.encode('utf-8'), csv)
+	# Get parameters from the page
+	for p in auto_params:
+		thing = soup.find(id=p)
+		if thing != None:
+			val = thing.get('value')
+			if val:
+				params[p] = val
+			else:
+				params[p] = ""
+		else:
+			params[p] = p
+
+	return params
+
+
+def get_all(days, weeks, season):
+	url = "http://timeplan.uia.no/swsuia" + season + "/public/no/default.aspx"
+	data = {}
+	subjects = get_subject_codes(season)
+	s = requests.Session()
+
+	params = {
+		'RadioType': RADIO_TYPE,
+		'lbDays': days,
+		'lbWeeks': ";".join(str(_) for _ in weeks),
+		'dlObject': ""
+	}
+
+	# Populate the session for the event, so we can use the same one for each subject.
+	new_params = populate_parameters(s, season)
+
+	for k, v in new_params.iteritems():
+		params[k] = v
+
+	for k, v in subjects.iteritems():
+		params['dlObject'] = v
+		r = s.post(url, data=params)
+		data[v] = convert_to_table_format(r.text.encode('utf-8'), False)
+		print "Got data for", k.encode('utf-8'), str(len(data[v])), "rows of data"
+		if len(data[v]) > 0: print data[v][0]
+		print len(data)
+		add_to_db(data[v], v)
 
 def get_subject_codes(season):
 	results = OrderedDict()
@@ -94,12 +137,14 @@ def convert_to_table_format(html, csv):
 	table = []
 	if csv: table = ""
 	week_no = 0
-
 	for week_table in tab:
 		# For each week table
 		for week_row in week_table:
 			# Each row per table.
-			row_type = week_row.get('class')
+			try: 
+				row_type = week_row.get('class')
+			except:
+				print week_table
 
 			# tr1 means this is a table header
 			if "tr1" in row_type:
@@ -149,18 +194,36 @@ def get_row_info(row, week_no, csv):
 			# Extract info like subject code, type of class
 			elif i == 3:
 				# A class has at least two fields: The course code and the type. After this there can be some info.
-				val = val[1:].split("/")
-
-				course_code = val[0]
-
-				if "forel" in val[1].lower():
-					course_type = "Lecture"
+				course_codes = re.findall(SUB_CODE_RE, val)
+				if len(course_codes) > 0:
+					course_code = course_codes[0]
 				else: 
+					course_code = "None"
+
+				val = val[7:]
+				if "/" in val:
+					val = val.split("/")
+				else:
+					val = [val]
+
+				type_check = val[0].lower()
+
+				if "for" in type_check:
+					course_type = "Lecture"
+				elif "sem" in type_check:
+					course_type = "Seminar"
+				elif "øv" in type_check or "lab" in type_check:
 					course_type = "Practice"
+				else:
+					course_type = "None"
 
 				# Info can have some irrelevant numbers, so filter those out
-				info = [_ for _ in val[2:] if re.findall(NON_DIGITS_RE, _)]
-				info = "".join(info)
+				if len(val) > 1:
+					info = [_ for _ in val[2:] if re.findall(NON_DIGITS_RE, _)]
+					info = "".join(info)
+				else:
+					info = ""
+
 
 			# Find and extract rooms
 			elif i == 4:
@@ -183,7 +246,8 @@ def add_to_db(timetable, code):
 		with db_con:
 			table = "\"" + code + "\""
 			cur = db_con.cursor()
-			cur.execute("CREATE TABLE IF NOT EXISTS " + table + SQL_TABLE)
+			cur.execute("DROP TABLE IF EXISTS " + table)
+			cur.execute("CREATE TABLE " + table + SQL_TABLE)
 			cur.executemany("INSERT INTO " + table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);", timetable)
 			print "Timetable inserted into database"
 
@@ -196,7 +260,7 @@ weeks = "t"
 # weeks = range(1,31)
 
 # Can be 1-3 (mon-wed), 4-6 (thu-sat) or 1-6 (mon-sat)
-days = "1-6"
+days = "1-3"
 
 # "v" for spring, "h" for autumn
 period = "v"
@@ -204,14 +268,17 @@ period = "v"
 # Get a valid code through get_subject_codes
 subject_code = "#SPLUSE0C745"
 
+# Experimental, gets all the data
+get_all(days, weeks, period)
+
 # Example for getting the time table and printing it out as csv
-print get_timetable(days, weeks, subject_code, period, csv=True)
+# print get_timetable(days, weeks, subject_code, period, csv=True)
 
 # Example for getting the time table and adding it to the database
 # tab = get_timetable(days, weeks, subject_code, period)
 # add_to_db(tab, subject_code)
 
 # Example for printing subject codes
-# subject_codes = get_subject_codes("v")
+# 	subject_codes = get_subject_codes("v")
 # for k, v in subject_codes.items(): print k.encode('utf-8') + ": " + v.encode('utf-8')
 
